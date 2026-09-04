@@ -85,8 +85,13 @@ def _select_expiries(available: list[str], as_of: date, max_expiries: int, max_h
     return [candidates[i] for i in idx]
 
 
-def _fetch_chain_live(ticker: str, max_expiries: int, as_of: date, dividend_yield: float) -> pd.DataFrame:
-    """Pull spot + raw call/put quotes from yfinance for a maturity-spread set of expiries, cleaned and tagged with T."""
+def _fetch_chain_live(ticker: str, max_expiries: int, as_of: date) -> pd.DataFrame:
+    """Pull spot + raw call/put quotes from yfinance for a maturity-spread set of expiries, cleaned and tagged with T.
+
+    Only genuinely date-dependent market facts (spot, quotes, the risk-free proxy) go in the cached
+    chain -- dividend_yield is a modeling assumption the caller can override per call, not something
+    to freeze into an on-disk cache keyed only by ticker+date (see fetch_chain).
+    """
     yft = yf.Ticker(ticker)
     spot = float(yft.history(period="1d")["Close"].iloc[-1])
     rate = get_risk_free_rate()
@@ -109,7 +114,7 @@ def _fetch_chain_live(ticker: str, max_expiries: int, as_of: date, dividend_yiel
         raise RuntimeError(f"No usable (future-dated) expirations returned for {ticker}")
 
     chain = pd.concat(frames, ignore_index=True)
-    chain["spot"], chain["risk_free_rate"], chain["dividend_yield"] = spot, rate, dividend_yield
+    chain["spot"], chain["risk_free_rate"] = spot, rate
     return chain
 
 
@@ -119,7 +124,12 @@ def fetch_chain(
     dividend_yield: float = DEFAULT_DIVIDEND_YIELD,
     use_cache: bool = True,
 ) -> MarketSnapshot:
-    """Return a MarketSnapshot for `ticker`, pulling live data unless today's pull is already cached."""
+    """Return a MarketSnapshot for `ticker`, pulling live data unless today's pull is already cached.
+
+    dividend_yield is applied fresh from the argument on every call (cached or not) rather than
+    read back from the chain, precisely so a caller can change it (e.g. a UI override) without that
+    change being masked by a same-day on-disk cache hit that only depends on ticker+date.
+    """
     as_of = date.today()
     cache_path = _cache_path(ticker, as_of)
 
@@ -127,7 +137,7 @@ def fetch_chain(
         chain = pd.read_csv(cache_path, parse_dates=["expiry"])
         chain["expiry"] = chain["expiry"].dt.date
     else:
-        chain = _fetch_chain_live(ticker, max_expiries, as_of, dividend_yield)
+        chain = _fetch_chain_live(ticker, max_expiries, as_of)
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         chain.to_csv(cache_path, index=False)
 
@@ -139,6 +149,6 @@ def fetch_chain(
         as_of=as_of,
         spot=float(chain["spot"].iloc[0]),
         risk_free_rate=float(chain["risk_free_rate"].iloc[0]),
-        dividend_yield=float(chain["dividend_yield"].iloc[0]),
+        dividend_yield=dividend_yield,
         chain=chain,
     )

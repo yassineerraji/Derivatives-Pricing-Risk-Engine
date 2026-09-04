@@ -13,6 +13,8 @@ dependencies = [
     "pandas>=2.2",
     "yfinance>=0.2.40",
     "matplotlib>=3.9",
+    "streamlit>=1.63.0",
+    "plotly>=7.0.0",
 ]
 
 [dependency-groups]

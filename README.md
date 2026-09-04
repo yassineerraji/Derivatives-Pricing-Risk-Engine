@@ -9,6 +9,7 @@ An options pricing and risk management engine that implements several numerical 
 
 - [Scope](#scope)
 - [Modules](#modules)
+- [Interactive app](#interactive-app)
 - [Technology](#technology)
 - [Documentation requirements](#documentation-requirements)
 
@@ -67,6 +68,34 @@ Build a simplified book containing 5-10 option positions across one or two under
 - **P&L attribution:** Compare frictionless Black-Scholes replication P&L with P&L including transaction costs to quantify the real cost of hedging.
 
 **Deliverable:** A cumulative hedging P&L chart comparing theoretical and frictional results, plus VaR and Expected Shortfall with confidence intervals.
+
+## Interactive app
+
+A [Streamlit](https://streamlit.io) app under `app/` puts the four modules above behind sliders
+instead of fixed script parameters — it calls `src/dpre` directly (no separate implementation) and
+is covered by a smoke-test pass with `streamlit.testing.v1.AppTest`. Run it with:
+
+```
+uv run streamlit run app/Home.py
+```
+
+**Any ticker, not just SPY.** A shared sidebar control (a curated liquid-name dropdown plus a
+free-text option) picks the underlying for Home, Vol Surface Explorer, and Risk Desk, persisted
+across navigation; the two generic calculator pages (Pricing Lab, Greeks Dashboard) offer an
+optional one-click prefill from whichever ticker is currently selected instead. Dividend yield is
+auto-estimated per ticker and always shown as an editable override, not silently assumed.
+
+Four pages, each captioned with the `dpre` modules it calls:
+
+- **Pricing Lab** — live Black-Scholes/Monte Carlo/finite-difference comparison; drag path count and
+  toggle antithetic/control-variate to watch variance reduction and MC convergence respond.
+- **Vol Surface Explorer** — the live, arbitrage-constrained SVI surface calibrated to real market
+  quotes, plus a single-slice sandbox where dragging `a, b, rho, m, sigma` redraws Durrleman's
+  no-arbitrage condition `g(k)` in real time.
+- **Greeks Dashboard** — analytical vs. finite-difference vs. Monte Carlo (pathwise / likelihood-ratio)
+  Greeks side by side, with delta/gamma curves across spot.
+- **Risk Desk** — an editable option book, live historical/Monte Carlo VaR/ES, and a multi-path
+  delta-hedging simulation with adjustable spread/impact costs.
 
 ## Technology
 

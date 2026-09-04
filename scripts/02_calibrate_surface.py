@@ -20,7 +20,7 @@ TICKER = "SPY"
 MAX_EXPIRIES = 8
 
 
-def plot_vol_surface(iv_df: pd.DataFrame, svi_slices) -> None:
+def plot_vol_surface(iv_df: pd.DataFrame, svi_slices, snapshot) -> None:
     """3D scatter of market implied vols plus the fitted SVI surface across strike, maturity, and IV."""
     fig = plt.figure(figsize=(9, 7))
     ax = fig.add_subplot(projection="3d")
@@ -31,9 +31,7 @@ def plot_vol_surface(iv_df: pd.DataFrame, svi_slices) -> None:
         slice_df = iv_df[iv_df["T"] == params.T]
         if slice_df.empty:
             continue
-        forward = slice_df["spot"].iloc[0] * np.exp(
-            (slice_df["risk_free_rate"].iloc[0] - slice_df["dividend_yield"].iloc[0]) * params.T
-        )
+        forward = snapshot.spot * np.exp((snapshot.risk_free_rate - snapshot.dividend_yield) * params.T)
         lo = forward * np.exp(-DEFAULT_MAX_ABS_LOG_MONEYNESS)
         hi = forward * np.exp(DEFAULT_MAX_ABS_LOG_MONEYNESS)
         strikes = np.linspace(max(lo, slice_df["strike"].min()), min(hi, slice_df["strike"].max()), 60)
@@ -93,7 +91,7 @@ def main() -> None:
     arbitrage_table.to_csv(TABLES_DIR / "svi_arbitrage_check.csv", index=False)
     print(arbitrage_table.to_string(index=False))
 
-    plot_vol_surface(iv_df, svi_slices)
+    plot_vol_surface(iv_df, svi_slices, snapshot)
     print(f"Saved deliverables to {TABLES_DIR} and {PLOTS_DIR}")
 
 

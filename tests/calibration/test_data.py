@@ -1,10 +1,11 @@
-"""Tests for the pure (network-free) chain-cleaning transformation."""
+"""Tests for the pure (network-free) chain-cleaning transformation and the fetch_chain cache."""
 
 from datetime import date
 
 import pandas as pd
 
-from dpre.calibration.data import _clean_quotes, _select_expiries
+import dpre.calibration.data as data_module
+from dpre.calibration.data import _clean_quotes, _select_expiries, fetch_chain
 
 
 def test_clean_quotes_uses_bid_ask_mid_when_live_quote_exists() -> None:
@@ -73,3 +74,28 @@ def test_select_expiries_excludes_zero_dte() -> None:
     selected = _select_expiries(["2026-01-01", "2026-02-01"], as_of, max_expiries=6)
 
     assert "2026-01-01" not in selected
+
+
+def test_fetch_chain_applies_fresh_dividend_yield_on_cache_hit(tmp_path, monkeypatch) -> None:
+    """dividend_yield must reflect the argument passed to fetch_chain, not get frozen at whatever
+    value happened to be used the first time this ticker+date was fetched and cached to disk --
+    the cache file is keyed only by ticker+date, so it must not be the source of dividend_yield."""
+    monkeypatch.setattr(data_module, "CACHE_DIR", tmp_path)
+
+    as_of = date.today()
+    cache_path = tmp_path / f"FAKE_{as_of.isoformat()}.csv"
+    pd.DataFrame(
+        {
+            "strike": [100.0], "bid": [1.0], "ask": [1.1], "last_price": [1.05],
+            "volume": [10], "open_interest": [5], "expiry": [as_of], "T": [0.5],
+            "option_type": ["call"], "mid": [1.05], "quote_source": ["bid_ask"],
+            "spot": [100.0], "risk_free_rate": [0.03],
+        }
+    ).to_csv(cache_path, index=False)
+
+    snap_a = fetch_chain("FAKE", dividend_yield=0.01, use_cache=True)
+    snap_b = fetch_chain("FAKE", dividend_yield=0.05, use_cache=True)
+
+    assert snap_a.dividend_yield == 0.01
+    assert snap_b.dividend_yield == 0.05
+    assert snap_a.spot == snap_b.spot == 100.0  # the cached chain itself is unchanged/reused

@@ -14,6 +14,9 @@ results/tables/*
 results/plots/*
 !results/plots/.gitkeep
 
+# Streamlit local secrets (none used yet, but keep them out if ever added)
+.streamlit/secrets.toml
+
 # Editors / OS
 .DS_Store
 .idea/

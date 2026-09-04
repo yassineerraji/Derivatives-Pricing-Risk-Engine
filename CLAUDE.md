@@ -51,9 +51,19 @@ results/
   plots/                     # PNG/HTML outputs
 docs/
   technical_notes.md         # the four documentation-requirements topics from the README
+
+app/                         # Streamlit UI over src/dpre (post-Phase-5 addition, see README "Interactive app")
+  Home.py
+  cache_utils.py              # st.cache_data wrappers around the live fetch+calibrate pipeline
+  sidebar.py                   # shared ticker/dividend-yield selector + generic-page prefill button
+  pages/
+    1_Pricing_Lab.py
+    2_Vol_Surface_Explorer.py
+    3_Greeks_Dashboard.py
+    4_Risk_Desk.py
 ```
 
-Scripts contain no pricing/math logic themselves — they call `src/dpre`, write to `results/`, and are what "the deliverable" means operationally.
+Scripts contain no pricing/math logic themselves — they call `src/dpre`, write to `results/`, and are what "the deliverable" means operationally. `app/` follows the same rule: pages call `src/dpre` and render results, no pricing/risk logic lives in `app/` itself. Sanity-check page changes with `streamlit.testing.v1.AppTest` (`at.run()`, then exercise any buttons/sliders you touched — including a ticker switch on any page that uses `render_ticker_selector`, since a widget's `options`/`value` range can legitimately differ per ticker — and assert `not at.exception`) rather than eyeballing; it runs headlessly and catches errors a visual check would miss. Any widget that a button/callback can programmatically overwrite (e.g. `render_prefill_button`, the SVI sandbox's reset) needs an explicit `key=`, must not also pass `value=` once that key may already be seeded (warns), and must only be written to from an `on_click` callback or before the widget is created in the same run, never after (raises `StreamlitWidgetAlreadyInstantiatedError`) — see `sidebar.seed_defaults`/`render_prefill_button` and the Vol Surface Explorer sandbox for the pattern.
 
 ## Build order
 
