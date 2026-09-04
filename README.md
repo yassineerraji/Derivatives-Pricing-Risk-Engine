@@ -1,5 +1,7 @@
 # Derivatives Pricing & Risk Engine
 
+[Repository](https://github.com/yassineerraji/Derivatives-Pricing-Risk-Engine) · [Live app](https://derivatives-pricing-risk-engine.streamlit.app)
+
 An options pricing and risk management engine that implements several numerical methods from first principles, calibrates to real market data, and measures the practical cost of hedging.
 
 > **Project brief**
@@ -129,6 +131,8 @@ An 8-position book across calls/puts, strikes, and maturities (3m/6m/9m) on a si
 **Deliverable:** `results/plots/hedging_pnl.png`, `results/tables/var_es.csv` — produced by `scripts/04_risk_report.py`.
 
 ## Interactive app
+
+**[Try the live app](https://derivatives-pricing-risk-engine.streamlit.app)** — no install required.
 
 A [Streamlit](https://streamlit.io) app under `app/` puts the four modules above behind sliders
 instead of fixed script parameters — it calls `src/dpre` directly (no separate implementation) and
