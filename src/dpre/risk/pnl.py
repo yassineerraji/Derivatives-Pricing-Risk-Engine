@@ -4,9 +4,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from dpre.calibration.svi import SVIParams, svi_implied_vol
+from dpre.calibration.svi import SVIParams
 from dpre.risk.book import Position
 from dpre.risk.hedging import HedgeCostModel, run_hedge_simulation, simulate_price_path
+from dpre.risk.valuation import book_representative_vol
 
 
 @dataclass
@@ -32,15 +33,18 @@ def run_pnl_attribution(
     cost_model: HedgeCostModel, n_days: int = 50, dt_years: float = 1 / 365,
     n_paths: int = 200, seed: int = 42,
 ) -> PnLAttribution:
-    """Simulate n_paths independent price paths at the calibrated near-term ATM vol, hedge the book
-    daily along EACH with and without transaction costs, and compare the resulting P&L distributions.
+    """Simulate n_paths independent price paths at the book's vega-weighted implied vol, hedge the
+    book daily along EACH with and without transaction costs, and compare the resulting P&L distributions.
 
     Within a single path, using the SAME path (and the same vol for both simulating it and
     pricing/hedging off it) for the frictionless and frictional runs isolates transaction costs as
-    the only difference between them -- the point of the comparison.
+    the only difference between them -- the point of the comparison. The simulation vol itself is
+    the book's vega-weighted average implied vol (see valuation.book_representative_vol): the most
+    defensible single number for a book spanning several strikes/maturities, though it does NOT make
+    the frictionless baseline flat (see docs/technical_notes.md sec. 5 for why not, and why that's a
+    real finding rather than something to fix away).
     """
-    atm_slice = min(svi_slices, key=lambda p: abs(p.T - n_days * dt_years))
-    sigma = float(svi_implied_vol(0.0, atm_slice))
+    sigma = book_representative_vol(positions, S0, r, q, svi_slices)
 
     rng = np.random.default_rng(seed)
     path_seeds = rng.integers(0, 2**31 - 1, size=n_paths)

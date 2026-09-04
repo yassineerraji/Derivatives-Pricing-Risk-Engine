@@ -80,7 +80,8 @@ Both are unit-tested against hand-built slices with a known-good and a deliberat
 parameterization (`tests/calibration/test_arbitrage.py`).
 
 **Original finding (independent per-slice least squares):** run against a live SPY chain (8
-maturities, 11 days to ~2.2 years), 5 of 8 slices failed the butterfly check and 4 of 7 consecutive
+maturities, ~4 days to ~10 months — `_select_expiries` caps the calibrated horizon at one year), 5
+of 8 slices failed the butterfly check and 4 of 7 consecutive
 maturity pairs failed the calendar check. That was expected, not a bug: fitting each maturity
 slice **independently** by unconstrained weighted least squares gives the objective nothing that
 penalizes a locally non-convex or maturity-decreasing total-variance curve — it only minimizes fit
@@ -165,31 +166,58 @@ The classical Black-Scholes replication argument (Itô's lemma applied to a cont
 delta-hedged portfolio, the same derivation that produces the BS PDE) says that if you hedge
 *continuously* at the *same* vol used to price the option, the replicating portfolio's P&L is
 exactly zero — the option premium is precisely the cost of manufacturing its payoff synthetically.
-`risk/hedging.py` and `risk/pnl.py` depart from that idealization in two distinct, deliberately
-separated ways, and the interpretation differs for each:
+`risk/hedging.py` and `risk/pnl.py` depart from that idealization, and — importantly — `pnl.py`
+runs the comparison across `n_paths` independent simulated paths, not one, because a single path's
+cumulative P&L is noisy enough to be actively misleading on its own (an earlier single-path version
+of this simulation happened to land near a flat +$306; the properly-averaged 200-path result below
+shows that draw was not representative of the typical outcome at all).
 
-- **Discretization ("gamma") noise — present even in the frictionless run.** Rebalancing only once
-  a day, not continuously, means the hedge is imperfectly delta-neutral between rebalances; the
-  book's realized convexity (gamma) over each day's price move creates P&L noise around zero. This
-  is visible directly in `results/plots/hedging_pnl.png`: the *frictionless* curve is not flat —
-  it swings between roughly -$1,000 and +$800 over the 50-day simulation before settling near
-  +$306. This is not a bug or a cost; it is the real, well-known error inherent to discrete-time
-  hedging, and it would shrink toward zero as rebalancing frequency increases.
-- **Transaction cost — the "real" cost of hedging.** `HedgeCostModel` charges half the bid-ask
-  spread plus a market-impact term proportional to `shares_traded^2` (linear impact times size) on
-  every rebalance. Both the frictionless and frictional runs trade *identical* share quantities
-  along the *same* simulated path (§ the identity verified in
-  `tests/risk/test_hedging.py::test_frictional_cash_lags_frictionless_by_compounded_cost`) — cost
-  is the only thing that differs between them, precisely isolating its effect. In the live SPY run:
-  $727 of cumulative transaction cost over 50 days took the book from +$306 (frictionless) to
-  -$414 (frictional).
+**Finding (200 paths, 50 trading days, live SPY book/surface):** the *frictionless* run's final P&L
+has **mean +$5,200, std $4,094** across paths — nowhere near flat, and with a spread wide enough
+that individual paths swing from solidly negative to over +$10,000. Three distinct effects are
+mixed together in that number, and disentangling them is the point of this section:
 
-**Interpretation:** the BS/SVI price is a *frictionless replication cost* — a lower bound on what
-manufacturing the payoff actually costs a desk that must trade to stay hedged. Actual market-makers
-charge a markup over that theoretical price specifically to cover expected hedging costs, which is
-also why bid-ask spreads on options tend to widen for the options that are *most expensive to
-hedge* — high-gamma options (near-the-money, near-expiry) that demand the largest, most frequent
-rebalancing trades. The market-impact term's quadratic-in-size cost also means hedging a large book
-costs disproportionately more than hedging several smaller ones separately — a real effect (price
-impact), even though this project's linear-impact functional form is a standard simplification, not
-an empirically fit one.
+1. **Smile/vol-mismatch P&L (the dominant effect here) — not a bug, not noise, but not
+   "frictionless cost" either.** `risk/valuation.py` prices each book position off *its own*
+   SVI-implied vol (sticky-strike), and this book's eight legs span 14.1%-21.2% vol. A single
+   simulated price path, however, has exactly one realized vol. `pnl.py` uses the book's
+   vega-weighted average implied vol (16.0%) to simulate that path — the standard choice for
+   picking one representative number — but no single choice can make a *dispersion* of priced vols
+   agree with a single realized-vol path. A leg priced (and hedged) at 21% vol, realizing a path
+   with a lower actual vol, earns a systematic gain if we're net short that leg's gamma (or a loss
+   if net long) — exactly the "vega/smile P&L" real trading desks track separately from cost. I
+   verified this isn't an accounting bug two ways before accepting the number: tracing a single
+   path's day-by-day P&L shows smooth accumulation with no discontinuous jumps (ruling out, e.g., a
+   position's assigned SVI slice silently changing mid-run — it doesn't, `vol_for` keys off each
+   position's fixed original `T`, never its shrinking `T_remaining`), and a controlled single-option
+   book hedged at *exactly* its own pricing vol shows only a ~0.3%-of-notional mean bias — consistent
+   with effect (2) below and nothing larger.
+2. **Discretization ("gamma") noise.** Rebalancing once a day, not continuously, leaves the hedge
+   imperfectly delta-neutral between rebalances. This is genuinely small on its own (the controlled
+   single-option, matched-vol test above), but it's what the path-to-path *spread* around the mean
+   (the ± $4,094 std, and the shaded band in `results/plots/hedging_pnl.png`) is mostly made of once
+   effect (1)'s mean is accounted for.
+3. **Transaction cost — the one this section is actually trying to isolate.** `HedgeCostModel`
+   charges half the bid-ask spread plus a market-impact term on every rebalance. Both the
+   frictionless and frictional runs trade *identical* share quantities along the *same* simulated
+   path in each iteration (verified exactly, accounting for cash's risk-free compounding, in
+   `tests/risk/test_hedging.py::test_frictional_cash_lags_frictionless_by_compounded_cost`) — cost
+   is the only thing that differs between the two runs, which is what makes it possible to isolate
+   despite effects (1) and (2) both being present in absolute terms. In the live run: frictional
+   final P&L is **mean +$4,165, std $4,013** — systematically below frictionless by a mean gap of
+   about $1,035, matching mean cumulative transaction cost of **$1,053 (std $207)** to within the
+   compounding adjustment `test_hedging.py` derives.
+
+**Interpretation:** effects (1) and (2) are real properties of hedging a multi-strike, multi-maturity
+book with plain delta-only hedging against realized markets that don't share one flat vol — a desk
+sees them too, and manages them with vega/vanna hedging this project doesn't implement. Effect (3)
+is the specific "real cost of hedging" the README asks for, and it survives cleanly underneath the
+other two: whatever a book's smile-driven P&L happens to be on a given realization, transaction
+costs make it systematically worse by a predictable amount. The BS/SVI price is a *frictionless
+replication cost* which desks must mark up over to cover *both* the transaction costs demonstrated
+here *and* the smile-mismatch risk of not being able to vega-hedge every leg at its own vol — one
+reason bid-ask spreads widen for the options that are most expensive to hedge (high-gamma,
+near-the-money, near-expiry). The market-impact term's quadratic-in-size cost also means hedging a
+large book costs disproportionately more than hedging several smaller ones separately — a real
+effect (price impact), even though this project's linear-impact functional form is a standard
+simplification, not an empirically fit one.

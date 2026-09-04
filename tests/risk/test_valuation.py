@@ -6,7 +6,7 @@ import pytest
 from dpre.calibration.svi import SVIParams
 from dpre.pricing.black_scholes import price as bs_price
 from dpre.risk.book import Position, build_book
-from dpre.risk.valuation import book_delta, book_value, nearest_slice, position_value, vol_for
+from dpre.risk.valuation import book_delta, book_representative_vol, book_value, nearest_slice, position_value, vol_for
 
 SPOT, R, Q = 100.0, 0.03, 0.01
 SVI_SLICES = [
@@ -52,3 +52,18 @@ def test_book_delta_reduces_time_remaining_by_elapsed_years() -> None:
     delta_now = book_delta(book, SPOT, R, Q, SVI_SLICES, elapsed_years=0.0)
     delta_later = book_delta(book, SPOT, R, Q, SVI_SLICES, elapsed_years=0.05)
     assert delta_now != pytest.approx(delta_later)
+
+
+def test_book_representative_vol_is_within_the_range_of_position_vols() -> None:
+    """A vega-weighted average must lie within [min, max] of the individual positions' own vols."""
+    book = build_book(SPOT)
+    individual_vols = [float(vol_for(p, SPOT, R, Q, SVI_SLICES)) for p in book]
+    rep_vol = book_representative_vol(book, SPOT, R, Q, SVI_SLICES)
+    assert min(individual_vols) <= rep_vol <= max(individual_vols)
+
+
+def test_book_representative_vol_matches_single_position_vol() -> None:
+    """With one position, the vega-weighted average is trivially just that position's own vol."""
+    book = [Position("call", 100.0, 90 / 365, 10.0)]
+    expected = float(vol_for(book[0], SPOT, R, Q, SVI_SLICES))
+    assert book_representative_vol(book, SPOT, R, Q, SVI_SLICES) == pytest.approx(expected)

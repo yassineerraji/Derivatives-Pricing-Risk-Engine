@@ -8,6 +8,7 @@ import numpy as np
 
 from dpre.calibration.svi import SVIParams, svi_implied_vol
 from dpre.greeks.analytical import delta as bs_delta
+from dpre.greeks.analytical import vega as bs_vega
 from dpre.pricing.black_scholes import price as bs_price
 from dpre.risk.book import Position
 
@@ -50,3 +51,16 @@ def book_value(positions: list[Position], S, r: float, q: float, svi_slices: lis
 def book_delta(positions: list[Position], S, r: float, q: float, svi_slices: list[SVIParams], elapsed_years: float = 0.0):
     """Sum of position_delta across the book, each position's own T reduced by elapsed_years."""
     return sum(position_delta(p, S, r, q, svi_slices, p.T - elapsed_years) for p in positions)
+
+
+def book_representative_vol(positions: list[Position], S: float, r: float, q: float, svi_slices: list[SVIParams]) -> float:
+    """Vega-weighted average of each position's own SVI-implied vol -- the standard way to pick one
+    representative vol for a book spanning several strikes/maturities (each with its own implied
+    vol) when a single-factor simulation needs one number. See docs/technical_notes.md sec. 5: this
+    does not, and cannot, make a mixed book's hedge P&L flat under a single-vol physical path -- the
+    dispersion of vols *across* positions (not just picking the "right" average level) is itself a
+    real source of P&L when hedging a smile-exposed book with plain delta hedging.
+    """
+    weights = np.array([abs(p.quantity) * bs_vega(S, p.strike, p.T, r, float(vol_for(p, S, r, q, svi_slices)), q) for p in positions])
+    vols = np.array([float(vol_for(p, S, r, q, svi_slices)) for p in positions])
+    return float(np.sum(weights * vols) / np.sum(weights))
