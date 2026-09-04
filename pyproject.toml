@@ -1,0 +1,26 @@
+[project]
+name = "dpre"
+version = "0.1.0"
+description = "Options pricing and risk management engine: numerical methods, SVI calibration, and hedging cost analysis."
+readme = "README.md"
+authors = [
+    { name = "Yassine ERRAJI", email = "yassine.erraji@student-cs.fr" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "yfinance>=0.2.40",
+    "matplotlib>=3.9",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "quantlib>=1.43",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12.0"]
+build-backend = "uv_build"

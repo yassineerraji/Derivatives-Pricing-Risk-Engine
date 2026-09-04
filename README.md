@@ -88,3 +88,5 @@ The README and accompanying technical notes should explicitly cover:
 - The limitations of Black-Scholes revealed by the observed volatility smile
 - Why the control variate reduces variance, including a short mathematical proof
 - The interpretation of theoretical versus real hedging costs
+
+See [`docs/technical_notes.md`](docs/technical_notes.md) for all four, plus the SVI no-arbitrage checks.

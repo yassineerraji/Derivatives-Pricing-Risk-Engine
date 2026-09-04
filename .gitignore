@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# uv
+uv.lock.bak
+
+# Project data & generated outputs (must be reproducible from a clean checkout)
+data/cache/*
+!data/cache/.gitkeep
+results/tables/*
+!results/tables/.gitkeep
+results/plots/*
+!results/plots/.gitkeep
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
