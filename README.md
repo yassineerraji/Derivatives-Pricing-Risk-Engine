@@ -1,21 +1,27 @@
 # Derivatives Pricing & Risk Engine
 
-An options pricing and risk management engine that implements several numerical methods, calibrates to real market data, and measures the practical cost of hedging.
+An options pricing and risk management engine that implements several numerical methods from first principles, calibrates to real market data, and measures the practical cost of hedging.
 
 > **Project brief**
 > Build the models from first principles, compare their accuracy and performance, and use market data to connect theory with a realistic risk workflow.
 
+Pricing, calibration, Greeks, and risk models are implemented directly with NumPy/SciPy — no pricing library. QuantLib appears only in `tests/`, as a cross-validation dependency, never inside `src/`. Black-Scholes closed-form pricing is the validation baseline throughout: every other method is judged by how well and how fast it reproduces it. A 4-page written report (`report.pdf`, source in `report.tex`) summarizes the headline results across all four modules; see [Report](#report) below.
+
 ## Contents
 
 - [Scope](#scope)
+- [Repository layout](#repository-layout)
 - [Modules](#modules)
 - [Interactive app](#interactive-app)
+- [Report](#report)
+- [Getting started](#getting-started)
+- [Conventions & assumptions](#conventions--assumptions)
 - [Technology](#technology)
 - [Documentation requirements](#documentation-requirements)
 
 ## Scope
 
-The engine will cover:
+The engine covers:
 
 - European option pricing with three independent numerical approaches
 - Implied volatility extraction and SVI volatility-surface calibration
@@ -23,6 +29,59 @@ The engine will cover:
 - Historical and model-based VaR, Expected Shortfall, and discrete delta hedging
 
 The Black-Scholes implementation is the baseline for validation, not a substitute for the numerical methods being developed.
+
+## Repository layout
+
+```
+src/dpre/
+  pricing/
+    black_scholes.py      # closed-form call/put, d1/d2, put-call parity check
+    monte_carlo.py         # GBM path simulation, antithetic + control variate
+    finite_difference.py   # Crank-Nicolson PDE solver
+  calibration/
+    data.py                 # yfinance chain fetch + local cache
+    implied_vol.py           # Brent/Newton-Raphson IV solver
+    svi.py                   # SVI parameterization + weighted least-squares fit
+    arbitrage.py              # butterfly (Durrleman) and calendar no-arbitrage checks
+  greeks/
+    analytical.py           # closed-form Greeks
+    finite_difference.py    # bump-and-reprice
+    monte_carlo.py           # pathwise + likelihood-ratio estimators
+  risk/
+    book.py                  # option book construction (8 positions)
+    var_es.py                # historical-simulation and MC VaR/ES
+    hedging.py                # discrete delta-hedge simulation with costs
+    pnl.py                    # frictionless vs frictional P&L attribution
+    valuation.py               # prices book positions off the calibrated SVI surface
+
+scripts/                    # one entrypoint per deliverable, thin orchestration only
+  01_pricing_comparison.py
+  02_calibrate_surface.py
+  03_greeks_comparison.py
+  04_risk_report.py
+
+tests/                      # pytest, mirrors src/dpre structure
+data/cache/                 # gitignored raw yfinance pulls (parquet/csv, timestamped)
+results/
+  tables/                    # CSV outputs
+  plots/                     # PNG/HTML outputs
+docs/
+  technical_notes.md         # model assumptions, smile discussion, variance-reduction proof, hedging-cost interpretation
+
+app/                         # Streamlit UI over src/dpre
+  Home.py
+  cache_utils.py              # st.cache_data wrappers around the live fetch+calibrate pipeline
+  sidebar.py                   # shared ticker/dividend-yield selector + generic-page prefill button
+  pages/
+    1_Pricing_Lab.py
+    2_Vol_Surface_Explorer.py
+    3_Greeks_Dashboard.py
+    4_Risk_Desk.py
+
+report.tex, report.pdf       # the written report (see Report below)
+```
+
+Scripts contain no pricing/math logic themselves — they call `src/dpre`, write to `results/`, and are what "the deliverable" means operationally. `app/` follows the same rule: pages call `src/dpre` and render results, no pricing/risk logic lives in `app/` itself.
 
 ## Modules
 
@@ -36,18 +95,18 @@ Compare three pricing methods using price, runtime, and error against the closed
 | **Monte Carlo** | Risk-neutral GBM with antithetic and control variates | Quantify convergence and variance reduction |
 | **Finite differences** | Crank-Nicolson scheme for the Black-Scholes PDE | Compare PDE accuracy and runtime with Monte Carlo |
 
-The Monte Carlo analysis should include confidence intervals, variance before and after reduction, and a convergence plot of error against the number of simulations. The finite-difference comparison should use a common tolerance level.
+The Monte Carlo analysis includes confidence intervals, variance before and after reduction, and a convergence plot of error against the number of simulations. The finite-difference comparison uses a common tolerance level.
 
-**Deliverable:** A comparative table covering price, computation time, and error versus closed-form Black-Scholes.
+**Deliverable:** `results/tables/pricing_comparison.csv`, `results/tables/mc_variance_reduction.csv`, `results/plots/mc_convergence.png` — produced by `scripts/01_pricing_comparison.py`.
 
 ### 2. Calibration to real data
 
-1. Pull an options chain from Yahoo Finance (`yfinance`) or CBOE when accessible, using a liquid underlying such as SPY or AAPL.
-2. Extract implied volatility for each strike and maturity with Newton-Raphson or Brent root-finding.
-3. Calibrate an SVI (Stochastic Volatility Inspired) model to parameterize the volatility smile.
+1. Pull an options chain from Yahoo Finance (`yfinance`), using a liquid underlying (default SPY).
+2. Extract implied volatility for each strike and maturity with Brent root-finding.
+3. Calibrate an SVI (Stochastic Volatility Inspired) model to parameterize the volatility smile, per maturity slice, subject to nonlinear no-arbitrage constraints (Durrleman's butterfly condition and calendar monotonicity).
 4. Visualize the resulting three-dimensional volatility surface across strike, maturity, and implied volatility.
 
-**Deliverable:** A calibrated volatility surface and calibration code, including the weighted-least-squares cost function.
+**Deliverable:** `results/tables/svi_params.csv`, `results/tables/svi_arbitrage_check.csv`, `results/plots/vol_surface.png` — produced by `scripts/02_calibrate_surface.py`.
 
 ### 3. Greeks
 
@@ -57,17 +116,17 @@ Compare the following approaches for delta, gamma, vega, theta, and rho where ap
 - **Finite differences:** Bump-and-reprice with a documented step size $h$ and a discussion of bias versus variance
 - **Monte Carlo:** Pathwise and likelihood-ratio estimators, with delta and vega implemented at minimum
 
-**Deliverable:** A comparative table of accuracy and computation cost for each Greek and method.
+**Deliverable:** `results/tables/greeks_comparison.csv` — produced by `scripts/03_greeks_comparison.py`.
 
 ### 4. Risk management
 
-Build a simplified book containing 5-10 option positions across one or two underlyings.
+An 8-position book across calls/puts, strikes, and maturities (3m/6m/9m) on a single underlying, priced off the calibrated SVI surface (sticky-strike) rather than one flat volatility.
 
-- **VaR and Expected Shortfall:** Compute both historical-simulation estimates from real returns and Monte Carlo estimates from the calibrated model.
-- **Discrete delta hedging:** Simulate daily rebalancing with bid-ask spread and linear market-impact costs.
-- **P&L attribution:** Compare frictionless Black-Scholes replication P&L with P&L including transaction costs to quantify the real cost of hedging.
+- **VaR and Expected Shortfall:** Historical-simulation estimates from real returns and Monte Carlo estimates from the calibrated model, both with confidence intervals.
+- **Discrete delta hedging:** Daily-rebalanced simulation with bid-ask spread and linear market-impact costs, across multiple independent price paths.
+- **P&L attribution:** Frictionless Black-Scholes/SVI replication P&L versus P&L including transaction costs, isolating the real cost of hedging from smile-mismatch and discretization noise.
 
-**Deliverable:** A cumulative hedging P&L chart comparing theoretical and frictional results, plus VaR and Expected Shortfall with confidence intervals.
+**Deliverable:** `results/plots/hedging_pnl.png`, `results/tables/var_es.csv` — produced by `scripts/04_risk_report.py`.
 
 ## Interactive app
 
@@ -109,21 +168,71 @@ so it can't silently drift from what's actually tested locally, and dev-only dep
 used solely for cross-validation in `tests/`) are correctly excluded from it, keeping the deployed
 image lighter. Regenerate it with that same command any time `pyproject.toml` dependencies change.
 
+## Report
+
+`report.pdf` (LaTeX source: `report.tex`, compiled with [Tectonic](https://tectonic-typesetting.github.io))
+is a 4-page written report summarizing the headline result of each module: pricing agreement across
+methods, the measured Monte Carlo variance reduction, the SVI arbitrage-check failure-and-fix story,
+Greek-estimator accuracy, and the isolated transaction-cost gap in the hedging simulation. It embeds
+figures directly from `results/plots/`, so regenerate those first (see below) before recompiling with
+`tectonic report.tex`.
+
+## Getting started
+
+Requires Python ≥3.11 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+# install dependencies
+uv sync
+
+# run the test suite
+uv run pytest
+
+# reproduce every deliverable (each writes to results/tables/ and results/plots/)
+uv run python scripts/01_pricing_comparison.py
+uv run python scripts/02_calibrate_surface.py
+uv run python scripts/03_greeks_comparison.py
+uv run python scripts/04_risk_report.py
+
+# launch the interactive app
+uv run streamlit run app/Home.py
+```
+
+Scripts 2 and 4 pull a live options chain via `yfinance`; a prior successful pull is cached under
+`data/cache/` and reused with a printed warning if the live fetch fails, rather than fabricating data.
+
+## Conventions & assumptions
+
+- **Day count / compounding:** ACT/365, continuously-compounded rates, annualized volatility —
+  applied uniformly across pricing, calibration, Greeks, and risk. See
+  [`docs/technical_notes.md`](docs/technical_notes.md) for the full statement.
+- **Reproducibility:** Monte Carlo work fixes a random seed by default (overridable for convergence
+  studies), and every deliverable above is regenerated by running one script — no result exists only
+  because it was once printed in a notebook cell.
+- **No silent fallbacks:** if `yfinance` returns no data or a stale/incomplete chain, the pipeline
+  fails loudly or falls back to the last successfully cached pull with a printed warning — it never
+  fabricates market data.
+- **Generated, not committed:** `data/cache/` and `results/` are gitignored; everything in them is
+  reproducible from a clean checkout given network access.
+
 ## Technology
 
 | Area | Tools |
 | --- | --- |
-| Language | Python |
+| Language | Python ≥3.11, managed with [uv](https://docs.astral.sh/uv/) |
 | Numerical computing | NumPy, SciPy |
 | Market data | `yfinance` |
-| Visualization | Matplotlib and/or Plotly |
-| Cross-validation | QuantLib, for checking results only |
+| Visualization | Matplotlib and Plotly |
+| Interactive app | Streamlit |
+| Testing | pytest |
+| Cross-validation | QuantLib, for checking results only (dev dependency, never imported in `src/`) |
 
-SciPy will provide the optimization routines for SVI calibration. QuantLib must remain a cross-validation tool: the pricing, calibration, and risk models should be implemented directly in this project.
+SciPy provides the optimization routines for SVI calibration (weighted least squares with nonlinear
+no-arbitrage constraints, via SLSQP).
 
 ## Documentation requirements
 
-The README and accompanying technical notes should explicitly cover:
+The README and accompanying technical notes explicitly cover:
 
 - Model assumptions: risk-neutral measure, log-normality, and no-arbitrage
 - The limitations of Black-Scholes revealed by the observed volatility smile
