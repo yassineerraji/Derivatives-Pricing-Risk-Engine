@@ -1,5 +1,6 @@
 """Fetch an options chain and spot/rate/dividend assumptions from yfinance, caching raw pulls locally."""
 
+import time
 import warnings
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -13,6 +14,21 @@ CACHE_DIR = Path(__file__).resolve().parents[3] / "data" / "cache"
 DEFAULT_TICKER = "SPY"
 DEFAULT_DIVIDEND_YIELD = 0.013
 DEFAULT_RISK_FREE_RATE = 0.05
+
+# yfinance's own cookie/crumb cache defaults to appdirs.user_cache_dir(), which yfinance's own
+# source notes can be unwritable on some hosted platforms. When that happens yfinance can't
+# persist a working crumb, and Yahoo's options endpoint -- unlike the more lenient price/history
+# endpoint -- then tends to respond HTTP 200 with an empty result rather than an error, so
+# `.options` silently comes back empty instead of raising something diagnosable. Point yfinance's
+# cache at our own directory, which fetch_chain already writes CSVs into successfully in this
+# deployment, so it's known-writable, rather than trusting an OS-default that may not be.
+try:
+    # set_tz_cache_location is the publicly exported name but -- despite it -- sets all three of
+    # yfinance's internal caches (timezone, cookie/crumb, ISIN), not just the timezone one; see
+    # yfinance.cache.set_cache_location, which it's a thin alias for.
+    yf.set_tz_cache_location(str(CACHE_DIR / "yfinance"))
+except Exception as _exc:  # noqa: BLE001 -- best-effort; fall back to yfinance's own default location
+    warnings.warn(f"Could not set yfinance cache location, using its default: {_exc}")
 
 
 @dataclass
@@ -85,6 +101,22 @@ def _select_expiries(available: list[str], as_of: date, max_expiries: int, max_h
     return [candidates[i] for i in idx]
 
 
+def _fetch_expirations(yft: yf.Ticker, attempts: int = 3, delay_seconds: float = 1.5) -> tuple:
+    """`.options` with retries. Yahoo's options endpoint can respond HTTP 200 with an empty result
+    (a soft block) rather than an error when it doesn't like the request's crumb/session/source IP;
+    that condition is sometimes transient (e.g. rate limiting), so a short retry is worth it before
+    treating it as a hard failure.
+    """
+    expirations: tuple = ()
+    for attempt in range(attempts):
+        expirations = yft.options
+        if expirations:
+            return expirations
+        if attempt < attempts - 1:
+            time.sleep(delay_seconds)
+    return expirations
+
+
 def _fetch_chain_live(ticker: str, max_expiries: int, as_of: date) -> pd.DataFrame:
     """Pull spot + raw call/put quotes from yfinance for a maturity-spread set of expiries, cleaned and tagged with T.
 
@@ -96,9 +128,17 @@ def _fetch_chain_live(ticker: str, max_expiries: int, as_of: date) -> pd.DataFra
     spot = float(yft.history(period="1d")["Close"].iloc[-1])
     rate = get_risk_free_rate()
 
-    expiries = _select_expiries(yft.options, as_of, max_expiries)
+    expiries = _select_expiries(_fetch_expirations(yft), as_of, max_expiries)
     if not expiries:
-        raise RuntimeError(f"yfinance returned no listed expirations for {ticker}")
+        raise RuntimeError(
+            f"yfinance returned no listed expirations for {ticker} after retrying. This is "
+            "usually Yahoo Finance soft-blocking requests from this host's outbound IP range "
+            "(common on shared cloud hosting: HTTP 200 with an empty result, not an error) rather "
+            "than a bug in this code -- spot price fetching above succeeded because Yahoo's "
+            "price/history endpoint is more lenient than its options endpoint. It can be "
+            "intermittent, so retrying shortly sometimes works; if it persists for every ticker, "
+            "this deployment's outbound IP may need a different data source or a proxy."
+        )
 
     frames = []
     for expiry_str in expiries:
