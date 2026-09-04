@@ -15,14 +15,13 @@ st.set_page_config(page_title="Derivatives Pricing & Risk Engine", layout="wide"
 
 st.title("Derivatives Pricing & Risk Engine")
 st.markdown(
-    "A quantitative finance engine built from first principles — closed-form and numerical "
+    "This is a quantitative finance engine built from first principles such as closed-form and numerical "
     "pricing, arbitrage-constrained volatility surface calibration, Greeks by three independent "
-    "methods, and a full risk desk workflow (VaR/ES, delta-hedging cost) — driven by **live market "
-    "data for any ticker you choose**, not canned examples."
+    "methods, and a full risk desk workflow (VaR/ES, delta-hedging cost). " \
+    "This app is driven by **live market data for any ticker chosen**."
 )
 st.caption(
-    "Every number below comes from the tested `dpre` package (176 unit tests), the same code "
-    "used by `scripts/01`-`04`; this app is a UI layer over it, not a separate implementation."
+   "Have fun exploring the app !"
 )
 
 ticker, dividend_yield = render_ticker_selector()
@@ -87,7 +86,7 @@ st.subheader("Explore")
 pages = [
     ("pages/1_Pricing_Lab.py", "Pricing Lab", "Compare Black-Scholes, Monte Carlo, and finite differences live; watch variance reduction and MC convergence respond as you change path count."),
     ("pages/2_Vol_Surface_Explorer.py", "Vol Surface Explorer", "The live, arbitrage-constrained SVI surface for your chosen ticker; drag a slice's own parameters and watch the no-arbitrage condition respond in real time."),
-    ("pages/3_Greeks_Dashboard.py", "Greeks Dashboard", "Analytical vs. finite-difference vs. Monte Carlo Greeks side by side, with delta/gamma curves across spot."),
+    ("pages/3_Greeks_Dashboard.py", "Greeks Dashboard", "Analytical vs. finite-difference vs. Monte Carlo Greeks side by side, with delta/gamma curves across spot.                                         "),
     ("pages/4_Risk_Desk.py", "Risk Desk", "Edit an option book, compute historical and Monte Carlo VaR/ES, and run a multi-path hedging simulation to see what transaction costs really cost."),
 ]
 cols = st.columns(4)

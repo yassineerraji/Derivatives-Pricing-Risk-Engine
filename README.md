@@ -97,6 +97,18 @@ Four pages, each captioned with the `dpre` modules it calls:
 - **Risk Desk** — an editable option book, live historical/Monte Carlo VaR/ES, and a multi-path
   delta-hedging simulation with adjustable spread/impact costs.
 
+### Deployment
+
+Deployed on [Streamlit Community Cloud](https://share.streamlit.io) (free, built for exactly this,
+auto-redeploys on every push to `main`): repo `yassineerraji/Derivatives-Pricing-Risk-Engine`,
+branch `main`, main file `app/Home.py`.
+
+`requirements.txt` at the repo root is the install manifest Streamlit Cloud actually uses — it's
+generated from `uv.lock` (`uv export --no-dev --no-hashes --format requirements-txt -o requirements.txt`)
+so it can't silently drift from what's actually tested locally, and dev-only dependencies (QuantLib,
+used solely for cross-validation in `tests/`) are correctly excluded from it, keeping the deployed
+image lighter. Regenerate it with that same command any time `pyproject.toml` dependencies change.
+
 ## Technology
 
 | Area | Tools |

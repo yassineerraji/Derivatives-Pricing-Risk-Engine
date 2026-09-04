@@ -15,6 +15,10 @@ Implementation guide for building the **Derivatives Pricing & Risk Engine** desc
 - Core deps: `numpy`, `scipy`, `yfinance`, `matplotlib` (or `plotly`), `pandas`.
 - Dev deps: `pytest`, `quantlib-python` (cross-validation only).
 - Run everything via `uv run ...`; add scripts as `[project.scripts]` entries once stable.
+- `requirements.txt` at the repo root is a generated deployment artifact for Streamlit Community
+  Cloud (see README "Deployment"), not a second source of truth — regenerate it with
+  `uv export --no-dev --no-hashes --format requirements-txt -o requirements.txt` after any
+  `pyproject.toml` dependency change, never hand-edit it.
 
 ## Repository layout
 
