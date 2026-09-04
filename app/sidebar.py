@@ -6,6 +6,14 @@ from cache_utils import suggest_dividend_yield
 
 DEFAULT_TICKER = "SPY"
 
+# Shared with cache_utils.suggest_dividend_yield's own clamp range: every dividend-yield slider in
+# the app must cover at least what that function can return, or a genuinely high-yield ticker (a
+# REIT, a utility, ...) crashes the widget with StreamlitValueAboveMaxError the first time its
+# auto-estimated yield is pre-set as that slider's value -- SPY's ~1.3% never triggers this, which
+# is exactly why a narrower bound can look fine for a long time before a real ticker hits it.
+DIVIDEND_YIELD_BOUNDS = (0.0, 0.15)
+SIGMA_BOUNDS = (0.01, 3.0)
+
 CURATED_TICKERS = {
     "SPY": "S&P 500 ETF -- broad index, deep liquid chain, the project's original target",
     "QQQ": "Nasdaq-100 ETF -- tech-heavy index",
@@ -51,9 +59,15 @@ def render_ticker_selector(show_dividend_override: bool = True) -> tuple[str, fl
 
         suggested = suggest_dividend_yield(ticker)
         if show_dividend_override:
+            div_key = f"div_yield_{ticker}"
+            if div_key not in st.session_state:  # seed once; passing value= as well would warn once overridden
+                # Clamped defensively rather than trusting suggest_dividend_yield's own internal
+                # clamp to stay forever in sync with this slider's bounds -- that assumption is
+                # exactly what caused the original bug (two places, one changed without the other).
+                st.session_state[div_key] = max(DIVIDEND_YIELD_BOUNDS[0], min(DIVIDEND_YIELD_BOUNDS[1], float(suggested)))
             dividend_yield = st.slider(
-                "Dividend yield", 0.0, 0.08, float(suggested), step=0.001, format="%.3f",
-                key=f"div_yield_{ticker}",
+                "Dividend yield", *DIVIDEND_YIELD_BOUNDS, step=0.001, format="%.3f",
+                key=div_key,
                 help="Auto-estimated from Yahoo Finance; drag to override if you have a better estimate.",
             )
         else:
@@ -80,9 +94,19 @@ def render_prefill_button(s_key: str, sigma_key: str, q_key: str, k_key: str | N
     live spot and near-term ATM SVI vol. For generic pages (Pricing Lab, Greeks Dashboard) that
     aren't tied to one underlying but are more useful with a real starting point than an arbitrary
     S=100, sigma=0.20 default.
+
+    sigma/q are clamped to SIGMA_BOUNDS/DIVIDEND_YIELD_BOUNDS before being written to
+    session_state: the calling pages' own sliders use those same bounds, and a live value outside
+    them (a high-yield ticker, an illiquid/volatile one whose near-term ATM vol runs high) would
+    otherwise crash the widget with StreamlitValueAboveMaxError the moment it's next drawn, since
+    Streamlit validates whatever's in session_state against the widget's declared range regardless
+    of how it got there.
     """
     from cache_utils import DEFAULT_MAX_EXPIRIES, get_calibration, suggest_dividend_yield
     from dpre.calibration.svi import svi_implied_vol
+
+    def _clamp(val: float, bounds: tuple[float, float]) -> float:
+        return max(bounds[0], min(bounds[1], val))
 
     ticker = st.session_state.get("ticker", DEFAULT_TICKER)
     if st.button(f"Use live {ticker} spot & near-term vol", help="Fetches this page's own copy of the ticker's calibration; other pages are unaffected."):
@@ -90,11 +114,12 @@ def render_prefill_button(s_key: str, sigma_key: str, q_key: str, k_key: str | N
             dividend_yield = suggest_dividend_yield(ticker)
             snapshot, _, svi_slices = get_calibration(ticker, dividend_yield, DEFAULT_MAX_EXPIRIES)
             atm_slice = min(svi_slices, key=lambda p: abs(p.T - 30 / 365))
-            st.session_state[s_key] = round(snapshot.spot, 2)
-            st.session_state[sigma_key] = round(float(svi_implied_vol(0.0, atm_slice)), 4)
-            st.session_state[q_key] = round(snapshot.dividend_yield, 4)
+            live_sigma = float(svi_implied_vol(0.0, atm_slice))
+            st.session_state[s_key] = max(0.01, round(snapshot.spot, 2))
+            st.session_state[sigma_key] = round(_clamp(live_sigma, SIGMA_BOUNDS), 4)
+            st.session_state[q_key] = round(_clamp(snapshot.dividend_yield, DIVIDEND_YIELD_BOUNDS), 4)
             if k_key:
-                st.session_state[k_key] = round(snapshot.spot, 2)
+                st.session_state[k_key] = max(0.01, round(snapshot.spot, 2))
         except Exception as exc:  # noqa: BLE001
             st.error(f"Could not fetch live data for {ticker}: {exc}")
             return

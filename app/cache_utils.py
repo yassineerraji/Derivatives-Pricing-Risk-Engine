@@ -36,18 +36,26 @@ def get_historical_returns(ticker: str = DEFAULT_TICKER, lookback_days: int = 25
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def suggest_dividend_yield(ticker: str) -> float:
-    """Best-effort trailing dividend yield for `ticker`, sanity-clamped to a fraction (not a percent).
+    """Best-effort trailing dividend yield for `ticker`, as a fraction (not a percent).
 
     Falls back to 0.0 on any failure -- a safer default across arbitrary tickers than the SPY-specific
     constant this project otherwise uses (most single names yield less than SPY, many yield nothing),
     and this is always shown to the user as an editable, overridable value rather than applied silently.
+
+    yfinance's `dividendYield` field is a raw percentage-point number (SPY -> 1.01, meaning 1.01%,
+    not 1.01 already-a-fraction), verified directly against live data; `trailingAnnualDividendYield`
+    is already a fraction. These need different conversions, not a shared "divide by 100 if > 1.0"
+    guess -- that heuristic looks right for SPY (yield just above 1%) and is wrong for anything
+    under 1% (e.g. AAPL ~0.33 for 0.33% got read as 33% and clamped to the ceiling).
     """
     try:
         info = yf.Ticker(ticker).get_info()
-        y = info.get("dividendYield") or info.get("trailingAnnualDividendYield") or 0.0
-        y = float(y)
-        if y > 1.0:  # some yfinance fields/versions return this as a percentage (e.g. 1.3 => 1.3%)
-            y /= 100.0
+        if info.get("dividendYield") is not None:
+            y = float(info["dividendYield"]) / 100.0
+        elif info.get("trailingAnnualDividendYield") is not None:
+            y = float(info["trailingAnnualDividendYield"])
+        else:
+            y = 0.0
         return max(0.0, min(y, 0.15))
     except Exception:
         return 0.0

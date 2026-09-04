@@ -13,7 +13,7 @@ import streamlit as st
 from dpre.pricing.black_scholes import price as bs_price
 from dpre.pricing.finite_difference import price_crank_nicolson
 from dpre.pricing.monte_carlo import mc_price
-from sidebar import render_prefill_button, seed_defaults
+from sidebar import DIVIDEND_YIELD_BOUNDS, SIGMA_BOUNDS, render_prefill_button, seed_defaults
 
 st.set_page_config(page_title="Pricing Lab", layout="wide")
 st.title("Pricing Lab")
@@ -29,8 +29,8 @@ with st.sidebar:
     K = st.number_input("Strike (K)", min_value=0.01, step=1.0, key="K_input")
     T = st.slider("Maturity T (years)", 0.01, 3.0, 1.0, step=0.01)
     r = st.slider("Risk-free rate r", -0.02, 0.15, 0.03, step=0.005, format="%.3f")
-    q = st.slider("Dividend yield q", 0.0, 0.10, step=0.005, format="%.3f", key="q_input")
-    sigma = st.slider("Volatility (sigma)", 0.01, 1.50, step=0.01, key="sigma_input")
+    q = st.slider("Dividend yield q", *DIVIDEND_YIELD_BOUNDS, step=0.005, format="%.3f", key="q_input")
+    sigma = st.slider("Volatility (sigma)", *SIGMA_BOUNDS, step=0.01, key="sigma_input")
     option_type = st.radio("Option type", ["call", "put"], horizontal=True)
 
     st.header("Monte Carlo settings")
